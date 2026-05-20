@@ -345,4 +345,17 @@ func TestJwBearerAssertion(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "jwt-bearer assertion exchange failed")
 	})
+
+	t.Run("rejects ClientAssertion combined with JWTBearerAssertion", func(t *testing.T) {
+		// The refresh-token handoff cannot replay a ClientAssertion: refreshes
+		// would silently fall back to client_id/client_secret auth and fail at
+		// runtime if UAA requires client_assertion. Reject up front.
+		_, err := New("https://api.example.com",
+			JWTBearerAssertion(validAssertion),
+			ClientCredentials("clientID", ""),
+			ClientAssertion(clientAssertion),
+			AuthTokenURL("https://login.cf.example.com", "https://token.cf.example.com"))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "client assertion is not supported with the JWT Bearer assertion grant")
+	})
 }

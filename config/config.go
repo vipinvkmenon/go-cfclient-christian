@@ -292,6 +292,18 @@ func setGrantType(c *Config) error {
 	case c.username != "" && c.password != "":
 		c.grantType = GrantTypePassword
 	case c.assertion != "":
+		// The jwt-bearer flow does an eager exchange and then hands off to the
+		// refresh-token grant via oauth2.Config.TokenSource, which authenticates
+		// refreshes using only client_id / client_secret. A ClientAssertion
+		// supplied alongside a user assertion would be honored on the initial
+		// exchange but silently dropped on every subsequent refresh — if UAA
+		// requires client_assertion auth, refreshes would then fail at runtime.
+		// Reject the combination up front so the failure mode is loud.
+		if c.clientAssertion != "" {
+			return errors.New("client assertion is not supported with the JWT Bearer assertion grant: " +
+				"the refresh-token handoff cannot replay the client assertion, so refreshes would silently " +
+				"fall back to client_id/client_secret auth")
+		}
 		c.grantType = GrantTypeJwtBearer
 	case c.clientID != "" && (c.clientSecret != "" || c.clientAssertion != ""):
 		c.grantType = GrantTypeClientCredentials
