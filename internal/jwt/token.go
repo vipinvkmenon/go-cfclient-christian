@@ -162,12 +162,28 @@ func (s *JWTAssertionTokenSource) Token() (*oauth2.Token, error) {
 		return nil, fmt.Errorf("token request failed: %s", body)
 	}
 
-	var token oauth2.Token
-	err = json.Unmarshal(body, &token)
-	if err != nil {
+	// UAA's documented jwt-bearer response uses snake_case fields and an
+	// expires_in (seconds) field, neither of which oauth2.Token's JSON tags
+	// map. Decode into a wire-format struct and build the oauth2.Token so
+	// Expiry and RefreshToken are populated correctly.
+	var wire struct {
+		AccessToken  string `json:"access_token"`
+		TokenType    string `json:"token_type"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int64  `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &wire); err != nil {
 		return nil, fmt.Errorf("token unmarshal error: %w", err)
 	}
-	return &token, nil
+	token := &oauth2.Token{
+		AccessToken:  wire.AccessToken,
+		TokenType:    wire.TokenType,
+		RefreshToken: wire.RefreshToken,
+	}
+	if wire.ExpiresIn > 0 {
+		token.Expiry = time.Now().Add(time.Duration(wire.ExpiresIn) * time.Second)
+	}
+	return token, nil
 }
 
 // validateJWTTokenFormat checks if the provided JWT token has a valid format.
