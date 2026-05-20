@@ -1,10 +1,12 @@
 package config
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"testing"
 
+	"github.com/cloudfoundry/go-cfclient/v3/internal/jwt"
 	"github.com/cloudfoundry/go-cfclient/v3/testutil"
 
 	"github.com/stretchr/testify/require"
@@ -246,5 +248,36 @@ func TestJwBearerAssertion(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, jwtAssertion, cfg.assertion)
 		require.Equal(t, GrantTypeJwtBearer, cfg.grantType)
+	})
+
+	t.Run("TokenURL is set when origin is empty", func(t *testing.T) {
+		// Regression: previously TokenURL was only assigned when origin was set,
+		// so the eventual Token() call failed with "token URL is required".
+		cfg, err := New("https://api.example.com",
+			JWTBearerAssertion(jwtAssertion),
+			AuthTokenURL("https://login.cf.example.com", "https://token.cf.example.com"))
+		require.NoError(t, err)
+
+		src, err := cfg.CreateOAuth2TokenSource(context.Background())
+		require.NoError(t, err)
+		jwtSrc, ok := src.(*jwt.JWTAssertionTokenSource)
+		require.True(t, ok, "expected *jwt.JWTAssertionTokenSource, got %T", src)
+		require.Equal(t, "https://token.cf.example.com/oauth/token", jwtSrc.TokenURL)
+	})
+
+	t.Run("TokenURL has login_hint when origin is set", func(t *testing.T) {
+		cfg, err := New("https://api.example.com",
+			JWTBearerAssertion(jwtAssertion),
+			Origin("my-idp"),
+			AuthTokenURL("https://login.cf.example.com", "https://token.cf.example.com"))
+		require.NoError(t, err)
+
+		src, err := cfg.CreateOAuth2TokenSource(context.Background())
+		require.NoError(t, err)
+		jwtSrc, ok := src.(*jwt.JWTAssertionTokenSource)
+		require.True(t, ok, "expected *jwt.JWTAssertionTokenSource, got %T", src)
+		require.Contains(t, jwtSrc.TokenURL, "https://token.cf.example.com/oauth/token")
+		require.Contains(t, jwtSrc.TokenURL, "login_hint")
+		require.Contains(t, jwtSrc.TokenURL, "my-idp")
 	})
 }

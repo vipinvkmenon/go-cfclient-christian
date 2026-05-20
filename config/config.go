@@ -173,10 +173,10 @@ func (c *Config) CreateOAuth2TokenSource(ctx context.Context) (oauth2.TokenSourc
 		authConfig := threeLeggedAuthConfigFn()
 		tokenSource = authConfig.TokenSource(oauthCtx, c.oAuthToken)
 	case GrantTypeJwtBearer:
-		var uaaEndpointURL string
+		uaaEndpointURL := c.uaaEndpointURL + "/oauth/token"
 		if c.origin != "" {
 			// Add optional login hint to the token URL
-			uaaEndpointURL = addLoginHintToURL(c.uaaEndpointURL+"/oauth/token", c.origin)
+			uaaEndpointURL = addLoginHintToURL(uaaEndpointURL, c.origin)
 		}
 		tokenSource = &jwt.JWTAssertionTokenSource{
 			Assertion:       c.assertion,
