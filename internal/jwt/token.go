@@ -180,9 +180,16 @@ func (s *JWTAssertionTokenSource) Token() (*oauth2.Token, error) {
 		TokenType:    wire.TokenType,
 		RefreshToken: wire.RefreshToken,
 	}
-	if wire.ExpiresIn > 0 {
-		token.Expiry = time.Now().Add(time.Duration(wire.ExpiresIn) * time.Second)
+	// expires_in is required: without it, oauth2.Token.Expiry stays zero, and
+	// oauth2.Token.Valid() treats a zero Expiry as "valid forever". That would
+	// defeat both the refresh-token handoff (the cached token would never be
+	// considered expired, so refresh would never run) and the no-refresh-token
+	// diagnostic (which fires only when the cached token expires). Treat a
+	// missing or non-positive expires_in as a malformed response.
+	if wire.ExpiresIn <= 0 {
+		return nil, fmt.Errorf("token response missing or invalid expires_in")
 	}
+	token.Expiry = time.Now().Add(time.Duration(wire.ExpiresIn) * time.Second)
 	return token, nil
 }
 
