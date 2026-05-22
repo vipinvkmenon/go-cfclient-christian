@@ -1,0 +1,74 @@
+name: CF List Apps (JWT Bearer / GitHub OIDC)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cfApiEndpointUrl:
+        description: 'Cloud Foundry environment API endpoint'
+        default: 'https://api.cf.eu23-canary.hana.ondemand.com'
+        required: true
+        type: string
+      cfOrg:
+        description: 'CF org name'
+        required: true
+      cfSpace:
+        description: 'CF space name'
+        required: true
+      userOrigin:
+        description: 'The "origin-identifier" of your custom platform IdP (see origin of the space user)'
+        required: true
+        type: string
+      tenantIssuerUri:
+        description: 'Issuer URI of your SAP Cloud Identity Services tenant'
+        required: true
+
+# id-token: write is required for GitHub to mint an OIDC token that this
+# workflow exchanges with UAA via the jwt-bearer grant.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  list-apps:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for requesting the JWT
+      contents: read  # required for actions/checkout
+
+    steps:
+      - name: Show provided parameters
+        run: |
+          echo "Provided parameters:"
+          echo '${{ toJson(inputs) }}' | jq -r 'to_entries | .[] | "- \(.key): \(.value)"'
+
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Get short-lived GitHub-issued JWT
+        id: get-github-jwt
+        run: |
+          githubJwt=$(curl -s \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            -H "Accept: application/json; api-version=2.0" \
+            -H "Content-Type: application/json" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ inputs.tenantIssuerUri }}" \
+            | jq -r '.value')
+          echo $githubJwt | jq -R 'split(".") | .[0],.[1] | @base64d | fromjson'
+          echo "githubJwt=$githubJwt" >> $GITHUB_OUTPUT
+
+      - name: List CF apps via JWT Bearer OIDC
+        env:
+          CF_API_URL:    ${{ inputs.cfApiEndpointUrl }}
+          CF_ORG_NAME:   ${{ inputs.cfOrg }}
+          CF_SPACE_NAME: ${{ inputs.cfSpace }}
+          CF_ORIGIN:     ${{ inputs.userOrigin }}
+          # JWT minted in the previous step; passed as env var to avoid it
+          # appearing in the process argument list.
+          GITHUB_JWT:    ${{ steps.get-github-jwt.outputs.githubJwt }}
+        run: go run ./examples/jwt_bearer_oidc/...
